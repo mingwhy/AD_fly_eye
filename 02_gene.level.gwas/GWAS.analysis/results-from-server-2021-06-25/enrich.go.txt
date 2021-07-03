@@ -1,0 +1,3 @@
+Description	GeneRatio	BgRatio	pvalue	p.adjust	geneID
+GO:0048813	dendrite morphogenesis	10/130	164/12275	9.25906684391064e-06	0.0118800877601986	TrpRS/Snr1/Mtp/Dref/tutl/dom/Dscam1/babos/dar1/ab
+GO:0016358	dendrite development	10/130	177/12275	1.80548446203627e-05	0.0118800877601986	TrpRS/Snr1/Mtp/Dref/tutl/dom/Dscam1/babos/dar1/ab

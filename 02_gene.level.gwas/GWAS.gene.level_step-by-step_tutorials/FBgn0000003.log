@@ -1,0 +1,34 @@
+PLINK v1.90b6.17 64-bit (28 Apr 2020)
+Options in effect:
+  --allow-no-sex
+  --bfile ../GWAS.analysis/dgrp2/dgrp2-164lines.maf0.05
+  --covar ../GWAS.analysis/input_files/eye-assoc.txt keep-pheno-on-missing-cov
+  --extract ./FBgn0000003
+  --linear hide-covar mperm=10000
+  --mperm-save-all
+  --out FBgn0000003
+  --pheno ../GWAS.analysis/input_files/eye-pheno.txt
+  --seed 123456
+
+Hostname: DRsaveslivess-iMac.local
+Working directory: /Users/mingyang/Documents/2020-lab-projects/AD-fly-eye-project/2021-05-08-summarize/for.paper.submission/GWAS.gene.level_step-by-step_tutorials
+Start time: Sat Jun  5 09:47:23 2021
+
+8192 MB RAM detected; reserving 4096 MB for main workspace.
+1875927 variants loaded from .bim file.
+164 people (0 males, 164 females) loaded from .fam.
+164 phenotype values present after --pheno.
+--extract: 5 variants remaining.
+Using up to 4 threads (change this with --threads).
+--covar: 5 covariates loaded.
+Before main variant filters, 164 founders and 0 nonfounders present.
+Calculating allele frequencies... done.
+Total genotyping rate is 0.903659.
+5 variants and 164 people pass filters and QC.
+Phenotype data is quantitative.
+Dumping all permutation absolute t-stats to FBgn0000003.mperm.dump.all .
+Writing linear model association results to FBgn0000003.assoc.linear ... done.
+10000 max(T) permutations complete.
+Permutation test report written to FBgn0000003.assoc.linear.mperm .
+
+End time: Sat Jun  5 09:47:24 2021

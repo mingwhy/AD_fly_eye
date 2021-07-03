@@ -1,0 +1,41 @@
+/* Whole document: */
+body{
+  /* font-family: Helvetica; */
+  font-size: 12pt;
+}
+/* Headers */
+h3,h4,h5,h6{
+  font-size: 13pt;
+  /* color: DarkBlue; */
+}
+
+
+td {  /* Table  */
+  font-size: 8pt;
+}
+/* set title*/
+h1.title {
+  font-size: 24pt;
+  color: #58b99e; 
+}
+h1 { /* Header 1 */
+  font-size: 20pt;
+   #color: DarkBlue; 
+   color: #58b99e; 
+}
+h2 { /* Header 2 */
+    font-size: 18pt;
+     #color: DarkBlue; 
+     color: #58b99e; 
+}
+/*h3 { 
+  font-size: 18px;
+  font-family: "Times New Roman", Times, serif;
+  color: DarkBlue;
+}
+*/
+code.r{ /* Code block */
+    font-size: 10pt;
+}
+
+

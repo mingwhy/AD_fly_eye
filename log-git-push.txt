@@ -1,0 +1,11 @@
+## if the first time, remeber to switch to brank 'main'
+git init #create git
+git checkout -b main #Switched to a new branch 'main' (https://zhuanlan.zhihu.com/p/339370999)
+git remote add origin https://github.com/mingwhy/AD_fly_eye.git
+
+## after make changes locally, add to local lib first then push to remote
+git add -A
+git commit -m "first commit"
+#git push -u origin main #some error message
+git push -f https://github.com/mingwhy/AD_fly_eye.git main
+

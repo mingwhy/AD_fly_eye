@@ -1,0 +1,265 @@
+---
+title: "Fly.eye.pat step-by-step tutorial on 1 image"
+author: "Ming Yang"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    #theme: united
+date: 'Compiled: `r format(Sys.Date(), "%B %d, %Y")`'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,message=F,warning = F,cache=T)
+#knitr::opts_knit$set(root.dir = getwd())
+```
+
+This files shows the basic steps of fly eye measurement and feature extraction with one image as an example.
+
+```{r fig.width=16,fig.height=9}
+# Load packages 
+library(lattice)
+library(ggplot2)
+library(sp) 
+library(raster) 
+library(tiff)
+library(EBImage)
+library(Gmedian)
+library(gridExtra)
+
+
+# source helpful R code and specify image folder path 
+source('./src_Fly.eye.pat_funcs.R')
+dir.in='./example_images/'
+dir.out='./output/'
+cat("check dir: ",dir.in,"; dirout",dir.out,"\n");
+
+
+# Read in images and begin process
+image.filenames <- list.files(path=dir.in,pattern="*jpg$", full.name=F)
+image.filenames=image.filenames[1]; #use one image as an example
+print(image.filenames);
+
+n.images=length(image.filenames);
+image.files=paste(dir.in,image.filenames,sep='/');
+
+# process one image at a time
+# save each image quantitive features in a lsit
+
+  image.i = 1
+  image = readImage(image.files[[image.i]] )
+  image.name = image.filenames[image.i]
+  cat('begin processing image',image.name,',',image.i,'images out of',n.images,'total images\n')
+  
+  display(image, method="raster")
+  dim(image)
+  
+  # Resize to fit memory
+  image.res=resFunc(image)
+  display(image.res, method="raster")
+  dim(image.res)
+  
+  # Assign resized images RGB channels to data frames
+  image.Ori <- RGBintoDF(image.res)
+  head(image.Ori)
+  
+  # White TopHat morphological transform
+  image.Top <- wTopHat(image.res,y=5,z='diamond')
+  
+  # Display images
+  par(mfcol=c(1,2))
+  dispImg(image.res)
+  dispImgT(image.Top,0.99)
+  
+  ## Threshold and centroids
+  # Assign gray channel to data frame
+  image.grey <- GintoDF(image.Top)
+  head(image.grey)
+  
+  # Threshold to keep pixels with intensity > 0.99 quantile
+  image.thres.retain<-image.grey[image.grey$G > quantile(image.grey$G,0.99), ]
+  
+  # select ROI, region of interest through two rounds of pixel fitering based on distances to centroids
+  image.thres = image.thres.retain
+  cutoffs=c(0.8,0.3);
+  for(cutoff in cutoffs){
+    cat('ROI selection with cutoff',cutoff,'\n')
+    # Estimate images centroid
+    centroids <- Weiszfeld(image.thres[,1:2])
+    
+    # extract each pixel x,y coordiantes retained pixels
+    thresXY <- image.thres[,1:2,drop=FALSE]
+    p1<-ggplot(thresXY,aes(x=x,y=y))+geom_point()+
+      geom_point(aes(x=centroids$median[1], y=centroids$median[2]),colour="red",size=4)+
+      theme_bw()+ ggtitle(image.name)+xlab('')+ylab('')+
+      theme(panel.grid = element_blank(),
+            axis.text = element_blank(),
+            axis.ticks = element_blank())
+    ## Distances to centroide,calculate distances to centroid
+    pdist <- pointDistance(p1=thresXY, p2=centroids$median,lonlat=F)
+    
+    # Mark distances > 0.8 quantile, as they belong to
+    # points outside the eye boundary in their majority
+    pLogic <- (pdist < quantile(pdist, cutoff));
+    distCent <- cbind(distCent = pdist, selected = pLogic)
+    
+    # Plot example histograms
+    p2<-ggplot(data.frame(distCent),aes(x=distCent))+geom_histogram(bins = 30)+
+      geom_vline(xintercept = quantile(distCent[,1], cutoff),col="red",lty="dashed", lwd=2)+
+      theme_bw()+ ggtitle(image.name) 
+           
+    
+    # Join thresholded and distances lists
+    thresDist <- cbind(image.thres,distCent);
+    # retain points with distance < quantile cutoff 0.8
+    distSelect <- thresDist[thresDist$selected==1,]
+    
+    # Plot examples (black clouds with blue roi overlay)
+    p3 <- ggplot(data=thresDist, aes(x=x, y=y,color=selected))+
+        geom_point(show.legend = FALSE) + 
+        theme_bw()+ ggtitle(image.name)+xlab('')+ylab('')+
+      theme(panel.grid = element_blank(),
+            axis.text = element_blank(),
+            axis.ticks = element_blank())
+   
+    print(grid.arrange(p1,p2,p3,ncol=3))
+   
+    # Overlay to image and plot example
+    p <- ggplot(data = image.Ori, aes(x = x, y = y)) +
+        geom_point(colour = rgb(image.Ori[c("R","G","B")])) +
+        labs(title = "Original Eye selected Points",
+             cex=0.5) +xlab("x") +ylab("y") +
+        geom_point(data=distSelect, alpha=0.2) +
+        plotTheme()
+    
+    image.thres <- distSelect[,1:3]
+  }
+  
+  ## Subset and confidence ellipse and Add ellipse to plot 
+  ellPlots = ellPlot(distSelect,0.90)
+  ellPlots #it's a ggplot object
+  # Extract components
+  build = ggplot_build(ellPlots)$data
+  ell = build[[2]]
+  
+  # Select original image points inside ellipse
+  orig.ell = data.frame(image.Ori[,1:5],
+             in.ell = as.logical(point.in.polygon(image.Ori$x,image.Ori$y, ell$x, ell$y)))
+  orig.pix = orig.ell[orig.ell$in.ell==TRUE,]
+  
+  # plot example: raw eye image + ROI circled in blue
+  p <- ggplot(data = image.Ori, aes(x = x, y = y)) +
+    geom_point(colour = rgb(image.Ori[c("R", "G","B")])) +
+    labs(title = "Original Eye final ROI", cex=0.5) +
+    xlab("x") + ylab("y") +
+    geom_polygon(data=ell[,1:2], alpha=0.2,
+                 size=1, color="blue") +#plotTheme()
+    theme_bw()+xlab('')+ylab('')+
+      theme(panel.grid = element_blank(),
+            axis.text = element_blank(),
+            axis.ticks = element_blank())
+  print(p)
+  
+  ## Create image from final ROI
+  rois.image = roitoImg(orig.pix)
+  display(rois.image,method='raster'); #check image
+  
+  ## begin extract ommatidia configuration features
+  pic=rois.image
+  #hist(pic);grid()
+    
+  y = equalize(pic)
+  #hist(y);grid()
+  #display(y, title='Equalized Grayscale Image',method='raster')
+    
+  grayimage<-channel(y,"grey")
+  #display(grayimage,method='raster')
+  nmask = thresh(grayimage, w=5, h=5, offset=0.02); #display(nmask)
+  nmask = opening(nmask, makeBrush(3, shape='disc')); #display(nmask)
+  nmask = fillHull(nmask); #display(nmask)
+  nmask = bwlabel(nmask)
+  cat("Number of ommatidia,",max(nmask),"\n");
+    
+  fts = data.frame(computeFeatures.moment(nmask))
+  head(fts)
+  
+  fts2 <- data.frame(computeFeatures.shape(nmask))
+  head(fts2)
+  
+  par(mfrow=c(1,5));
+  display(pic,"raster")
+  display(y, title='Equalized Grayscale Image',method='raster')
+  display(grayimage,method='raster')
+  display(nmask,"raster");
+  display(nmask,"raster");
+  text(fts[,"m.cx"], fts[,"m.cy"], 
+       labels=seq_len(nrow(fts)), col="red", cex=0.8)
+  
+  par(mfrow=c(1,2));
+  display(pic,"raster")
+  #display(y, title='Equalized Grayscale Image',method='raster')
+  #display(grayimage,method='raster')
+  display(nmask,"raster");
+  #display(nmask,"raster");
+  #text(fts[,"m.cx"], fts[,"m.cy"],labels=seq_len(nrow(fts)), col="red", cex=0.8)
+    
+  # fts and fts2 contain raw measurements on each ommatidium, which can be written out to a file
+  #out.file1=paste(dir.out,"/",image.name,"-coord.txt",sep='');
+  #out.file2=paste(dir.out,"/",image.name,"-area.txt",sep='');
+  #write.table(fts,file=out.file1,quote=F,row.names = F);
+  #write.table(fts2,file=out.file2,quote=F,row.names = F);
+  
+  ## ROI seleciton done, begin to compute features based on raw ommadium measurements
+  ## some filter:
+  # images contain less then 6 ommaditia, discard
+  # when calculating each feature, remove some extreme values, the largest 3 and smallest 3.
+  # number of ommatida
+  n.ommatidia=nrow(fts)
+  if(n.ommatidia<6){ result[[image.name]]=NA;next} 
+  # There are four features computed from data.frame fts 
+  # nn: pairwise ommatidia nearest neighbor distances
+  # cc: each ommatidium essentricity
+  # nn.mean, nn.sd, cc.mean, cc.sd
+  colnames(fts)[c(1,2,4)]; #x,y coordinates, essentricity
+  
+  nn.dist=c();
+  for(i in 1:nrow(fts)){
+    pairwise.dist=c();
+    for(j in 1:nrow(fts)){
+      if(i==j){next}
+      distance=((fts[i,]$m.cx-fts[j,]$m.cx)^2+(fts[i,]$m.cy-fts[j,]$m.cy)^2)^0.05;
+      pairwise.dist=c(pairwise.dist,distance);
+    }
+    nn.dist=c(nn.dist,min(pairwise.dist))
+  }
+  #length(nn.dist)==nrow(fts)
+  nn.out=get_mean_sd(nn.dist)
+  names(nn.out)=c('nn.mean','nn.sd')
+  
+  cc.out=get_mean_sd(fts$m.eccentricity)
+  names(cc.out)=c('cc.mean','cc.sd');
+  
+  x0=c(n.ommatidia,nn.out,cc.out)
+  names(x0)=c('n.ommatidia','nn.mean','nn.sd','cc.mean','cc.sd')
+  
+  # There are 12 features computed from data.frame fts2 
+  # mean and sd for each column variable
+  colnames(fts2)
+  out=apply(fts2,2,get_mean_sd)
+  x1=out[1,]
+  x2=out[2,]
+  name1=paste0('mean(',names(x1),')')
+  name2=paste0('sd(',names(x1),')')
+  names(x1)=name1;names(x2)=name2
+  out=c(x0,x1,x2)
+  
+  plot.new()
+  grid.table(data.frame(out))
+```
+
+
+```{r}
+sessionInfo()
+#installed.packages()[names(sessionInfo()$otherPkgs), "Version"]
+```
+

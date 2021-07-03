@@ -1,0 +1,23 @@
+PLINK v1.90b6.17 64-bit (28 Apr 2020)
+Options in effect:
+  --bfile ./GWAS.analysis/dgrp2/dgrp2-162lines.maf0.05
+  --recode
+  --snp X_3370299_SNP
+
+Hostname: DRsaveslivess-iMac.local
+Working directory: /Users/mingyang/Documents/2020-lab-projects/AD-fly-eye-project/2021-07-01-github-setup/02_gene.level.gwas
+Start time: Fri Jul  2 18:29:41 2021
+
+Random number seed: 1625275781
+8192 MB RAM detected; reserving 4096 MB for main workspace.
+1 out of 1890968 variants loaded from .bim file.
+162 people (0 males, 162 females) loaded from .fam.
+Using 1 thread (no multithreaded calculations invoked).
+Before main variant filters, 162 founders and 0 nonfounders present.
+Calculating allele frequencies... done.
+Total genotyping rate is 0.888889.
+1 variant and 162 people pass filters and QC.
+Note: No phenotypes present.
+--recode ped to plink.ped + plink.map ... done.
+
+End time: Fri Jul  2 18:29:42 2021
