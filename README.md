@@ -72,11 +72,11 @@ Files containing quantitive features of all fly eye images are stored in the fol
 
 
 ## 02_gene.level.gwas
-A detailed r markdown file of this step can be found [here](xx) or `02_gene.level.GWAS.html` file in the `./02_gene.level.GWAS` folder.
+A detailed r markdown file of this step can be found [here](http://htmlpreview.github.io/?https://github.com/mingwhy/AD_fly_eye/blob/main/02_gene.level.gwas/02_gene.level.gwas.html) or `02_gene.level.GWAS.html` file in the `./02_gene.level.GWAS` folder.
 
 This html details why and how we perform a gene-level GWAS analysis and funcitonal enrichment analysis based on the top candidate genes identified.
 
-A detailed step-by-step tutorial on the gene.level GWAS analysis can be found [here](xxx) or `GWAS.gene.level_step-by-step_tutorials.html` file in the `/02_gene.level.GWAS/GWAS.gene.level_step-by-step_tutorials` folder.
+A detailed step-by-step tutorial on the gene.level GWAS analysis can be found [here](http://htmlpreview.github.io/?https://github.com/mingwhy/AD_fly_eye/blob/main/02_gene.level.gwas/GWAS.gene.level_step-by-step_tutorials/GWAS.gene.level_step-by-step_tutorials.html) or `GWAS.gene.level_step-by-step_tutorials.html` file in the `/02_gene.level.GWAS/GWAS.gene.level_step-by-step_tutorials` folder.
 
 
 
