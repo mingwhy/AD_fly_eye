@@ -81,3 +81,18 @@ A detailed step-by-step tutorial on the gene.level GWAS analysis can be found [h
 
 
 ## 03_human.ortholog.ADgene
+
+To compare our top genes with human Alzheimer's Disease related genes.
+I did the following:
+
+- find human orthologs of fly genes using the [DRSC/TRiP Functional Genomics Resources](https://www.flyrnai.org/cgi-bin/DRSC_orthologs.pl) database.
+- get a list of human AD genes identified in GWAS studies using the [GWAS Catalog](https://www.ebi.ac.uk/gwas/) database.
+
+The R scripts for the above two tasks are in the folder `03_human.ortholog.ADgene`, named `01_retrieve_fly_human_orthologs_16631genes.R` and `02_retrieve_human_AD_genes.R`.
+
+In brief we found 1573 fly genes with human orthologs and these orthologs are GWAS hits in human Alzheimer's Disease studies.
+![human.orthologs.of.fly.genes](./03_human.ortholog.ADgene/human.orthologs.of.fly.genes.jpg)
+
+Applying a gene-level P value cutoff 0.01, there are 90 candidate genes, and 16 of them overlapped with human AD genes. 
+This overlapped gene number is highly significant through a permutation test.
+<img src="./03_human.ortholog.ADgene/human.AD.enrich.jpg" alt="human.AD.enrich" style="zoom:50%;" />
