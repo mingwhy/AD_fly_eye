@@ -29,9 +29,9 @@ Our results demonstrate the feasibility of utilizing natural genetic variation t
 - 01_fly_eye_features
 - 02_AD_fly_eye
 
-## 00_fly.eye.pat
+## 00_fly_eye_pat
 
-run script `00_Fly.eye.pat.R`
+run script `00_fly_eye_pat.R`
 
 The whole dataset of DGRP eye screening images is 16GB size.
 
@@ -41,18 +41,18 @@ All raw images are available upon request.
 
 We implemented an automated eye image analysis pipeline using R programing language.
 
-A brief description of this pipeline can be found in the README.md file in the folder `00_fly.eye.pat`.
+A brief description of this pipeline can be found in the README.md file in the folder `00_fly_eye_pat`.
 
-A detailed step-by-step tutorial on this pipeline can be found [here](http://htmlpreview.github.io/?https://github.com/mingwhy/AD_fly_eye/blob/main/00_fly.eye.pat/Fly.eye.pat_step-by-step_tutorials/Fly.eye.pat_step-by-step_tutorial_1_image.html) or `Fly.eye.pat_step-by-step_tutorial_1_image.html` file in the `./00_fly.eye.pat/Fly.eye.pat_step-by-step_tutorials` folder.
+A detailed step-by-step tutorial on this pipeline can be found [here](http://htmlpreview.github.io/?https://github.com/mingwhy/AD_fly_eye/blob/main/00_fly_eye_pat/fly_eye_pat_step-by-step_tutorials/fly_eye_pat_step-by-step_tutorial_1_image.html) or `fly_eye_pat_step-by-step_tutorial_1_image.html` file in the `./00_fly_eye_pat/fly_eye_pat_step-by-step_tutorials` folder.
 
 
-A example workflow processing 6 eye images and extracting eye scores  can be found [here](http://htmlpreview.github.io/?https://github.com/mingwhy/AD_fly_eye/blob/main/00_fly.eye.pat/Fly.eye.pat_step-by-step_tutorials/Fly.eye.pat_step-by-step_tutorial_6_image.html) or `Fly.eye.pat_step-by-step_tutorial_6_image.html` file in the `./00_fly.eye.pat/Fly.eye.pat_step-by-step_tutorials` folder.
+A example workflow processing 6 eye images and extracting eye scores  can be found [here](http://htmlpreview.github.io/?https://github.com/mingwhy/AD_fly_eye/blob/main/00_fly_eye_pat/fly_eye_pat_step-by-step_tutorials/fly_eye_pat_step-by-step_tutorial_6_image.html) or `fly_eye_pat_step-by-step_tutorial_6_image.html` file in the `./00_fly_eye_pat/fly_eye_pat_step-by-step_tutorials` folder.
 
 
 After the above R script is done, run the two perl scripts to extract quantitive features based on basic measurements.
 
 ```bash
-$ cd ./00_fly.eye.pat/eye.image.processed/
+$ cd ./00_fly_eye_pat/eye.image.processed/
 $ perl ../get-nn-mean-sd.pl batch1/ >batch1-nn-out.txt &
 $ perl ../get-area-mean-sd.pl batch1/ >batch1-area-out.txt &
 
