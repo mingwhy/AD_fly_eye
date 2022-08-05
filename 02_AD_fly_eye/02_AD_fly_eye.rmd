@@ -1,0 +1,894 @@
+---
+title: "Image analysis for AD fly eye phenotype"
+author: "Ming Yang and Matthew Zinkgraf"
+output:
+  html_document:
+    code_folding: show
+    css: style.css
+    toc: true
+    toc_depth: 2
+    df_print: paged
+    #theme: united
+date: 'Compiled: `r format(Sys.Date(), "%B %d, %Y")`'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = T,message = F,warning = F,
+        fig.width=5,fig.height=5,cache = TRUE,
+        #fig.show='hold',
+        fig.align='center')
+library(ggplot2);library(dplyr);library(purrr);library(gridExtra)
+setwd("~/Documents/R/wang/eye_score//")
+outdir<-"~/Documents/R/wang/eye_score/"
+
+load("DGRP_rawUntransformed_16traits.rdata")
+```
+
+# Data aggregation 
+We performed eye imaging in three batches, different batches may involve different DGRP lines.
+
+In batch 1, we divided DGRP lines into 24 groups and carried out eye imaging in these groups.
+
+All imaging was done when fly is at age day 28, with exception as Batch 3, which has images from both day 4 and day 28.
+
+There are 5623 images of 165 DGRP lines from 3 batches in total.
+
+- 3307 images from batch 1.
+- 1309 images from batch 2.
+- 640 images from batch 3.
+
+## Images dataset overview
+
+![](AD_fly_eye_files/figure-html/Group_Image.png)
+
+A Venn diagram of DGRP lines in three batches is shown below.
+
+- Batch 1 alone includes 164 DGRP lines.
+- 49 DGRP lines are incluede by batch 1 and batch 2.
+- 19 DGRP lines are included by all three batches.
+
+```{r fig.width=8,fig.height=6}
+
+## make venn plot
+s1<-unique(df.info[df.info$batch=='batch1',]$line)
+s2<-unique(df.info[df.info$batch=='batch2',]$line)
+s3<-unique(df.info[df.info$batch=='batch3',]$line)
+library(RVenn);
+my.sets=list('batch1'=s1,'batch2'=s2,'batch3'=s3);
+out = Venn(my.sets)
+ggvenn(out)
+```
+
+## Feature extraction
+
+
+We designed an automated image analysis pipelineto measure ommatidial degeneration for each fly eye image using R programming language. This pipeline mainly contains four steps: 1) automated region of interest (ROI) selection. 2) image feature quantification. 3) feature selection. 4) principal component analysis on selected features. 
+
+A step-by-step tutorial of this pipeline is shown in a separate R markdown file.
+
+![](AD_fly_eye_files/figure-html/eye-pipeline.png)
+
+The pipeline automatically selects the region of interest(ROI) for each fly eye image and measures each ommatidium's circularity, area, perimeters, mean of radius, sd of radius, min of radius, max of radius, and ommatidia pairwise distance.
+
+These basic measurements are summarized into 16 features.
+
+**16 features:**
+
+- nn.mean: mean of nearest neighbor distances
+- nn.sd: sd of nearest neighbor distances	
+- cc.mean: mean of ommatidia circularity	
+- cc.sd: sd of ommatidia circularity	
+- mean.s.area: mean of ommatidia area
+- sd.s.area: sd of ommatidia area
+-	mean.s.perimeter: mean of ommatidia perimeter 
+- sd.s.perimeter: sd of ommatidia perimeter 
+-	mean.s.radius.mean: mean of distribution of ommatidia radius mean
+-	sd.s.radius.mean: sd of distribution of ommatidia radius mean
+-	mean.s.radius.sd: mean of distribution of ommatidia radius sd
+-	sd.s.radius.sd: sd of distribution of ommatidia radius sd
+-	mean.s.radius.min: mean of distribution of minimal ommatidia radius 
+-	sd.s.radius.min: sd of distribution of minimal ommatidia radius 
+-	mean.s.radius.max: mean of distribution of maximal ommatidia radius 
+-	sd.s.radius.max: sd of distribution of maximal ommatidia radius 
+
+## Read in day 28 quantitive eye image features of the three batches 
+
+```{r}
+
+load("DGRP_rawUntransformed_16traits.rdata")
+#df - object of trait values for each sample
+#df.info - object of metadata for each sample
+
+```
+
+# Caluclate best linear unbiased predictor (BLUP) and broadsense heritability (H2B)
+```{r fig1, out.width = '100%', fig.height=15}
+require(lme4); require(lattice); library(stringr);library("FactoMineR");
+library(gridExtra);library("factoextra"); require(patchwork);
+library(tidyverse);library(reshape2); require(knitr)
+library('ggpubr');library(pander);library("sva"); require(boot)
+require(lattice); require(RLRsim)
+
+#define heritability functions
+mySumm <- function(.) { s <- sigma(.)^2; s1 = unlist(VarCorr(.))
+c(beta =getME(., "beta"), sigma = s, sig01 = s1, h2 = s1/sum(s,s1) )}
+
+h2b<-function(model,nsim=1000, conf = 0.95)
+{
+  #bootstrap the model and calculate the standard error for each parameter
+  #https://stats.stackexchange.com/questions/331438/which-bootstrap-confidence-intervals-are-provided-by-boot-ci-in-r
+  mySumm <- function(.) { s <- sigma(.)^2; s1 = unlist(VarCorr(.))
+  c(beta =getME(., "beta"), sigma = s, sig01 = s1, h2 = s1/sum(s,s1) )}
+  tmp<-bootMer(model, mySumm, nsim = nsim)
+  h2<-mySumm(model)
+  ll<-length(h2)
+  CI<-boot.ci(tmp,index=ll, type = c("basic"), conf = conf)
+  return(list(h2[ll],CI))
+}
+
+df.blup<- data.frame(matrix(vector(), 164, 16,
+                            dimnames=list(c(), names(df))),
+                     stringsAsFactors=F)
+
+df.blup.h2<- data.frame(matrix(vector(), 16, 3,
+                               dimnames=list(names(df), c("lower","H2B","upper"))),
+                        stringsAsFactors=F)
+
+list_ggplot<- list()
+
+for(i in 1:ncol(df))
+{
+  model<- lmer(df[,i] ~  df.info$group + (1|df.info$line), REML = T)
+  df.blup[,i]<-ranef(model)$'df.info$line'
+  
+  #loop through H2B
+   #h2<-h2b(model)
+   #df.blup.h2[i,1]<-h2[[2]]$basic[4]
+   #df.blup.h2[i,2]<-h2[[1]][[1]]
+   #df.blup.h2[i,3]<-h2[[2]]$basic[5]
+  
+  #loop through dotplots
+  tmp<-lattice::dotplot(ranef(model,condVar=TRUE))$`df.info$line`
+  
+  y<-tmp$panel.args[[1]]$x
+  x<-tmp$panel.args[[1]]$y
+  SE<-tmp$panel.args.common$se
+  
+  dp<-as.data.frame(cbind(y,x,SE))
+  dp$Line<- "DGRP"
+  dp[which(x==32), 4]<-"R32"
+  dp[which(x==441), 4]<-"WT_441"
+  
+  p<-ggplot(dp,aes(x=x, y=y, colour=Line)) + geom_point(size=0.25) + 
+    geom_errorbar(aes(ymin=y-SE, ymax=y+SE), width = 0.5, size = 0.25) + ylab(colnames(df)[i]) + xlab("Line") + scale_color_manual(values=c("#999999", "#E69F00", "#56B4E9")) + theme(legend.position = "none")
+  #ggsave(paste0(outdir,"rank_plot_", colnames(df)[i], ".pdf"), w=6,h=3)
+  list_ggplot[[i]] <- p
+}
+
+wrap_plots(list_ggplot,ncol = 2)
+
+row.names(df.blup)<-row.names(ranef(model)$'df.info$line')
+#save(df.blup.h2, file=paste0(outdir,"Blup_heritability.rdata")
+
+#load results from H2B permutation
+load(paste0(outdir,"Blup_heritability.rdata"))
+```
+
+## Plot heritability results for each trait
+```{r}
+od<-c("nn.mean", "cc.mean", "mean.s.area", "mean.s.perimeter", "mean.s.radius.mean", "nn.sd", "cc.sd", "sd.s.area", "sd.s.perimeter", "sd.s.radius.mean", "mean.s.radius.sd", "sd.s.radius.sd", "mean.s.radius.min", "sd.s.radius.min", "mean.s.radius.max", "sd.s.radius.max")
+df.blup.h2$ID1<-factor(row.names(df.blup.h2), levels=rev(od))
+df.blup.h2[od[1:5],"fg1"]<-"primary"
+df.blup.h2[od[6:16],"fg1"]<-"secondary"
+
+ggplot(df.blup.h2,aes(y=ID1, x=H2B)) + geom_point() +
+  geom_errorbarh(aes(xmin=lower, xmax=upper)) + ylab("Eye trait") + xlab("Broad-sense heritability") + facet_grid(fg1~., scales = "free", space="free")
+
+knitr::kable(round(df.blup.h2[,1:3],4), caption="Broadsense heritability and 95% confidence interval", format = "html", table.attr = "style='width:35%;'" ) %>% kableExtra::kable_classic(full_width = T, position = "center")
+```
+
+# Day 4 vs 28 trait comparison
+There are 24 DGRP lines that have images from both day 4 and day 28. (All day 4 images come from batch 3)
+
+```{r }
+dat=read.table("combine-3batch.txt",header=T,as.is=T,sep="\t")
+
+dat4<-dat[which(dat$day==4),]
+#gno4<-unique(dat[which(dat$day==4),"line"])
+#dat4_28<-dat[which(dat$line%in%gno4 & dat$day %in% c(4,28) & dat$group=="group28"),]
+
+df.blup.4d<- data.frame(matrix(vector(), 24, 16,
+                               dimnames=list(c(), names(df))),
+                        stringsAsFactors=F)
+
+for(i in 7:22)
+{
+  model<-lmer(dat4[,i] ~ (1|dat4$line), REML = T)
+  df.blup.4d[,i-6]<-ranef(model)$'dat4$line'
+  names(df.blup.4d)[i-6]<-names(dat4)[i]
+}
+
+row.names(df.blup.4d)<-row.names(ranef(model)$'dat4$line')
+df.blup.4d$day=4
+
+df.blup.28d<-df.blup[which(row.names(df.blup) %in% row.names(df.blup.4d)),]
+df.blup.28d$day=28
+
+
+day4_results=data.frame(matrix(vector(), 16, 4))
+
+for(i in 1:16)
+{
+rst<-t.test(df.blup.28d[,i]-df.blup.4d[,i])
+day4_results[i,1]<-colnames(df.blup.28d)[i]
+day4_results[i,2]<-rst$estimate
+day4_results[i,3]<-round(rst$statistic,4)
+day4_results[i,4]<-round(rst$p.value ,4)
+}
+
+names(day4_results)<-c("trait", "estimate", "t_stat", "p.value")
+day4_results$trait<-factor(day4_results$trait, levels=od)
+
+df.blup.28d$ID<-row.names(df.blup.28d)
+df.blup.4d$ID<-row.names(df.blup.4d)
+df.blup.4_28<-rbind(df.blup.4d, df.blup.28d)
+
+df.blup.4_28_long<-melt(df.blup.4_28, id.vars = c("day","ID"))
+
+df.blup.4_28_long$color<-"DGRP"
+df.blup.4_28_long$color[which(df.blup.4_28_long$ID==32)]="R32"
+df.blup.4_28_long$color<-factor(df.blup.4_28_long$color, levels=c("DGRP", "R32"))
+
+
+df.blup.4_28_primary<-df.blup.4_28_long[which(df.blup.4_28_long$variable %in% c("nn.mean", "cc.mean", "mean.s.area", "mean.s.perimeter", "mean.s.radius.mean")),]
+
+ggplot(df.blup.4_28_primary %>% arrange(color)) +
+  geom_line(aes(x=as.factor(day), y=value, group=ID, colour=color)) +
+  geom_point(aes(x=as.factor(day), y=value, colour=color), size = 1) +
+  scale_colour_manual(values = c( "#000000", "#ff0000")) + facet_grid(variable~., scales = "free") + ylab("Eye trait") + xlab("Day") + theme_bw() +ggtitle("Primary Traits")
+
+kable(day4_results[order(day4_results$trait),], caption="Paired t-test between day 4 and 28", format = "html", table.attr = "style='width:35%;'" ) %>% kableExtra::kable_classic(full_width = T, position = "center")
+
+#plot secondary traits
+
+`%ni%`=Negate(`%in%`)
+
+#df.blup.4_28_primary<-df.blup.4_28_long[which(df.blup.4_28_long$variable %ni% c("nn.mean", "cc.mean", "mean.s.area", "mean.s.perimeter", "mean.s.radius.mean")),]
+
+#ggplot(df.blup.4_28_primary %>% arrange(color)) +
+#  geom_line(aes(x=as.factor(day), y=value, group=ID, colour=color)) +
+#  geom_point(aes(x=as.factor(day), y=value, colour=color), size = 1) +
+#  scale_colour_manual(values = c( "#000000", "#ff0000")) + 
+#  facet_grid(variable~., scales = "free") + ylab("Eye trait") + 
+#  xlab("Day") + theme_bw() +ggtitle("Secondary Traits")
+```
+
+# Influence of donor/parental lines on trait values
+
+```{r}
+require(ggpubr); require(broom)
+dm<-read.table("doner_design_matrix.txt", sep="\t", header=T)
+
+area<-read.table("area-out.txt", sep="\t", header=T)
+area$image<-sub("(.+).jpg-area.txt","\\1", area$imageID,perl=T)
+
+nn<-read.table("nn-out.txt", sep="\t", header=T)
+nn$image<-sub("(.+).jpg-coord.txt","\\1", nn$imageID,perl=T)
+
+area_nn<-merge(area,nn,by.x="image",by.y="image", all=T)
+
+area_nn$ID<-sub("(.+)_\\d+.jpg-coord.txt","\\1", area_nn$imageID.y,perl=T)
+
+traits<-c("ID", "mean.s.area","sd.s.area","mean.s.perimeter", "sd.s.perimeter", "mean.s.radius.mean", "sd.s.radius.mean", "mean.s.radius.sd", "sd.s.radius.sd", "sd.s.radius.min", "mean.s.radius.max", "sd.s.radius.max", "nn.mean", "nn.sd", "cc.mean")
+
+area_nn<-area_nn[,traits]
+
+area.nn.blup<- data.frame(matrix(vector(), 4, 14,
+                            dimnames=list(c(), names(area_nn)[-1])),
+                     stringsAsFactors=F)
+## Calculate BLUP values for each parental line
+doner_main<-NULL
+doner_lm<-list()
+for(i in 2:ncol(area_nn))
+{
+  model<-lmer(area_nn[,i] ~ (1|area_nn$ID), REML = T)
+  area.nn.blup[,i-1]<-ranef(model)$'area_nn$ID'
+  randoms <- exactRLRT(model)
+  ti<-paste0(colnames(area_nn)[i], "; p-value = ", if(randoms$p.value==0) "< 2.2e-16" else randoms$p.value) 
+  #loop through dotplots
+  tmp<-lattice::dotplot(ranef(model,condVar=TRUE))$`area_nn$ID`
+  
+  y<-tmp$panel.args[[1]]$x
+  x<-as.character(tmp$panel.args[[1]]$y)
+  SE<-tmp$panel.args.common$se
+  
+  dp<-as.data.frame(cbind(y,x,SE))
+  dp$y<-as.numeric(dp$y)
+  dp$SE<-as.numeric(dp$SE)
+  dp$x<-factor(dp$x, levels=c("Female GMR het", "Female GMR_Abeta42 only", "Female GMR_0N4R only", "Female GMR_Abeta42 0N4R"))
+  dp$trait<-colnames(area_nn)[i]
+  doner_main<-rbind(doner_main, dp)
+  
+}
+
+doner_main<-doner_main[which(doner_main$trait %in% c("nn.mean", "cc.mean", "mean.s.area", "mean.s.perimeter", "mean.s.radius.mean")),]
+
+dm$ID<-factor(dm$ID, levels=c("Female_GMR_et", "Female_GMR_Abeta42_only", "Female_GMR_0N4R_only", "Female_GMR_Abeta42_0N4R"))
+
+dm_long<-melt(dm[,c("ID","nn.mean", "cc.mean", "mean.s.area", "mean.s.perimeter", "mean.s.radius.mean")], id.vars = "ID")
+
+annotation_main<-NULL
+
+for(i in c("nn.mean", "cc.mean", "mean.s.area", "mean.s.perimeter", "mean.s.radius.mean"))
+{
+  m1<-lm(dm[,i] ~ dm$AB42*dm$tau)
+  
+annotation <- data.frame(
+  variable=rep(i,3),
+  start = rep("Female_GMR_et",3),
+  end = c("Female_GMR_Abeta42_only", "Female_GMR_0N4R_only","Female_GMR_Abeta42_0N4R"),
+  y = c(max(dm[,i]),  max(dm[,i]) + (max(dm[,i])-min(dm[,i]))*.33,  max(dm[,i]) + (max(dm[,i])-min(dm[,i]))*.66),
+  label = formatC(summary(m1)$coefficients[2:4,4],4)
+)
+annotation_main<-rbind(annotation_main, annotation)
+}
+
+ggboxplot(dm_long, x = "ID", y = "value") + scale_x_discrete(labels = c('GMR','GMR>Aβ42','GMR>Tau','GMR>Aβ42+Tau')) +
+  geom_signif(
+    data = annotation_main,
+    aes(xmin = start, xmax = end, annotations = label, y_position = y),
+    textsize = 3, vjust = -0.2,
+    manual = TRUE
+  ) + xlab("Line") + ylab("Eye trait") +
+  facet_grid(variable~., scales = "free")
+
+
+#### do for all traits
+  dm_long<-melt(dm[,-c(2:5)], id.vars = "ID")
+  
+  annotation_main<-NULL
+  
+  for(i in unique(dm_long$variable))
+  {
+    m1<-lm(dm[,i] ~ dm$AB42*dm$tau)
+    
+    label = formatC(summary(m1)$coefficients[2:4,4],4)
+    annotation <- data.frame(
+      variable=i,
+      x = .5,
+      y = max(dm[,i]) - (max(dm[,i])-min(dm[,i]))*.15,
+      txt = paste0("Model p = ", formatC(glance(m1)$p.value,4), "\nAβ42 p = ", label[1], "\nTau p = ", label[2], "\nAβ42:Tau p = ", label[3]) 
+      
+    )
+    annotation_main<-rbind(annotation_main, annotation)
+  }
+  
+ggboxplot(dm_long, x = "ID", y = "value") + scale_x_discrete(labels = c('GMR','GMR>Aβ42','GMR>Tau','GMR>Aβ42+Tau')) + facet_wrap(.~variable, scales="free") + geom_text(data=annotation_main, aes(x=x, y=y, label=txt), hjust=0, size=1.75) + xlab("Line") + ylab("Eye trait")
+
+
+```
+
+# Genome-wide association (GWAS) analysis for AD fly eye phenotype
+
+In this markdown file, we will use PLINK (v1.9) to perform GWAS analysis to associate genetic variants with AD fly eye phenotype data in DGRP lines, and further employ a permutation procedure to identify a candidate set of fly genes which serve as potential modifier genes.
+
+## Preparing files
+
+### Eye phenotype data and covariates files
+- **eye phenotype data**: eye score for 162 DGRP lines (filename:eye.score_for_DGRP.lines_all.three.batches.txt, generated from `01_get.eye.score`)
+
+- covariates
+  - **Inverstion status**: downloaded from http://dgrp2.gnets.ncsu.edu/data/website/inversion.xlsx
+  - **Wolbachia infection status**: downloaded from http://dgrp2.gnets.ncsu.edu/data/website/wolbachia.xlsx
+
+```{r}
+require(openxlsx)
+eye<-read.table("Plink_lines.txt",sep="\t",header=F, row.names=1)
+eye$V2 <- gsub("line_", "", eye$V2, fixed=TRUE)
+row.names(eye) <- gsub("line_", "", row.names(eye), fixed=TRUE)
+
+eye<-as_tibble(eye)
+names(eye)<-"line"
+
+eye<-tibble('L'=as.character(eye$line))
+
+## inverstion status
+inv <- read.xlsx("inversion.xlsx",sheet = 1)
+
+inv$DGRP.Line <- gsub("DGRP_", "", inv$DGRP.Line, fixed=TRUE)
+invcols <- colnames(inv)    
+invcols[1] <- "L"
+colnames(inv) <- invcols
+inv<-as_tibble(inv);
+
+## wolbachia infection status
+wo <- read.xlsx("wolbachia.xlsx",sheet = 1)
+colnames(wo) <- c("L", "wo")
+wo$L <- gsub("DGRP__", "", wo$L, fixed=TRUE)
+
+wo1<-apply(wo,2,function(x){
+  x<-gsub('n',0,x)
+  x<-gsub('y',1,x)
+  as.numeric(x)
+})
+
+wo<-as_tibble(wo);
+wo1<-as_tibble(wo1);
+
+## combine eye.score, inversion, wolbachia infection data in one data.frame
+inv$L=as.character(inv$L)
+wo$L=as.character(wo$L)
+
+eyeInv <- left_join(eye, inv, by= "L")
+
+eyeIW <- left_join(eyeInv, wo, by="L")
+
+# there is no information regarding inversion status or wolbachia infection for line 43
+# This line was deleted before GWAS analysis
+
+eyeIW=eyeIW[eyeIW$L!=441 & eyeIW$L!=32,] # 441 and 32 are the two control lines
+write.table(eyeIW,file='eye-inv-wo.txt',quote=F,row.names = F,sep="\t")
+
+```
+Have a look at eye.score, inversion status, wolbachia infection status distribution among these 162 DGRP lines.
+
+``` {r}
+barplot(table(eyeIW$wo),xlab='Wolbachia status',ylab='#DGRP lines')
+
+x=as.numeric();
+for(i in 3:18){
+  x=cbind(x,c(sum(eyeIW[,i]=='INV'),sum(eyeIW[,i]=='INV/ST'),sum(eyeIW[,i]=='ST')));
+}
+colnames(x)<-colnames(eyeIW[,3:18])
+rownames(x)<-c('INV','INV/ST','ST')
+x1<-melt(x)
+colnames(x1)=c('inversion.status','inv','value');
+ggplot(x1,aes(x=inv,y=value,fill=inversion.status))+geom_bar(stat='identity')+theme_bw(base_size = 12)+theme(axis.text.x=element_text(size=10,angle=45,hjust=1))+xlab('Inversion')+ylab('Percentage of DGRP lines')
+
+```
+
+
+### DGRP genotype data files
+
+We firsted downloaded genotype data of 205 DGRP lines from 
+Online database [dgrp2](http://dgrp2.gnets.ncsu.edu/data.html):
+
+http://dgrp2.gnets.ncsu.edu/data.html --> Genotype files: --> 2.Plink formatted genotype (BED/BIM/FAM)
+
+
+We extracted genotype data of the **162 DGRP lines** with eye scores, and filtered out genetic variants whose **minor allele frequency < 0.05 or genotype call rate < 0.8**.
+
+```{r}
+# bash commands and ran in R using system()
+# extracting 162 genotype data from dgrp2 downloaded files
+# dgrp2.bed, dgrp2.bim, dgrp2.fam files were downloaded from dgrp2 database 
+# and saved in a folder named 'dgrp2'
+
+system("cut -f1 Plink_lines.txt | sed '1d' > retain.DGRPlines")
+
+# generate dgrp2-162lines.bim, dgrp2-162lines.bed, dgrp2-162lines.fam files.
+system("./plink/plink --bfile ./dgrp/dgrp2 --keep-fam retain.DGRPlines --make-bed --out dgrp2-162lines")
+
+system("./plink/plink --bfile ./dgrp/dgrp2 --keep-fam retain.DGRPlines --make-bed --maf 0.05 --mind 0.2 --out dgrp2-162lines.maf0.05")
+
+
+system("wc -l *fam")
+
+
+# calculate allele freq and count missingness: 
+# plink.lmiss, plink.imiss, plink.frq files are generated.
+system("./plink/plink --bfile ./dgrp2-162lines --freq --missing")
+
+par(mfrow=c(1,2))
+call=read.table("plink.lmiss",header=T,as.is=T)
+call$rate=1-call$F_MISS
+
+x<-quantile(call$rate,probs=seq(0,1,0.0001))
+plot(seq(0,1,0.0001),x,xlab='Quantile',ylab='Genotype call rate',
+     main='Genotype call rate.\nThe red horizontal line represents the 0.8 SNP call rate');
+abline(h=0.8,col='red',lwd=2)
+
+maf=read.table("plink.frq",header=T,as.is=T)
+hist(maf$MAF,xlab='MAF',main='Minor allele frequency (MAF).\nThe red verticalline represents MAF=0.05')
+abline(v=0.05,col='red',lwd=2)
+
+maf.snp<-maf[which(maf$MAF >=0.05),"SNP"]
+miss.snp<-call[which(call$F_MISS<0.2),"SNP"]
+snps<-intersect(maf.snp,miss.snp)
+
+write.table(snps,file='snps.txt',quote=F,row.names = F,sep="\t", col.names = F)
+
+```
+
+### Genetic variants annotation files
+
+The gene annotation of genetic variants in fly is downloaded from:
+
+http://dgrp2.gnets.ncsu.edu/data.html --> Other useful files --> 4.[Variant annotation](http://dgrp2.gnets.ncsu.edu/data/website/dgrp.fb557.annot.txt) (based on FB5.57)
+
+- There are four types of variants: DEL, INS, MNP and SNP.
+- Most variants are only annotated to one gene, there are 62 variants annotated to 11 genes and 19 variants annotated to 12 genes.
+- In summary, there are 3516713 variants annotated to 16745 genes.
+
+
+```{r eval=FALSE}
+system("./plink/plink --bfile ./dgrp2-162lines --extract snps.txt --make-bed --out dgrp2-162lines.maf0.05")
+
+system("wc -l *bim")
+
+## PCA
+# in bash, do following and it generated plink.eigenvec file
+system("./plink/plink --bfile dgrp2-162lines.maf0.05 --pca")
+
+```
+
+### Use principle components and wolbachia infection status as covariates
+
+- Inversions and Wolbachia infection may lead to relatedness among DGRP lines and bias GWAS.
+
+- We perform PCA analysis on the 162 DGRP genotype data in PLINK. The effects of inversions on genetic relatedness were well-captured by principle components 1~3, ***In(3R)Mo*** and ***In(2L)t*** are presented as examples below.
+
+- We used a Tracy-Windom test in the R package AssocTests to get the significane of PC assciated eigenvalues, PC1~4 turned out significant at alpha = 0.05.
+
+- The first 4 principle components (PC1-4) and wolbachia infection status are used as covarites in GWAS analysis.
+
+``` {r}
+# test PC eigenvalue significance using tw() funciton from AssocTests package
+library(AssocTests); require(scatterplot3d)
+df=read.table('plink.eigenval')
+
+df[,1]/sum(df[,1])
+#tw funciton: https://rdrr.io/cran/AssocTests/man/tw.html
+#a numeric value corresponding to the significance level. If the significance level is 
+# 0.05, 0.01, 0.005, or 0.001,
+# the criticalpoint should be set to be 0.9793, 2.0234, 2.4224, or 3.2724, accordingly. The default is 2.0234.
+df[,1]
+out=tw(eigenvalues = df[,1], eigenL = 20, criticalpoint = 0.9793) #alpha=0.05
+out$statistic
+out$method
+out$SigntEigenL # choose PC1-4
+
+## output covariate files
+pc<-read.table("plink.eigenvec",as.is=T)
+
+pc<-pc[,-1]
+L=sapply(strsplit(pc[,1],'\\_'),'[[',2)
+pc<-cbind(L,pc[,c(2,3,4,5)])
+colnames(pc)<-c('L',paste('pc',1:4,sep=''))
+head(pc)
+
+eyeIWP <- left_join(eyeIW, pc, by="L")
+
+#only In(3R)Mo 0.03234005 NA 
+line=paste('line',eyeIWP$L,sep='_')
+covar<-cbind(line,line,eyeIWP[,-c(1)])
+colnames(covar)[c(1,2)]=c('FID','IID')
+colnames(covar)
+covar.sub=covar[,c(1,2,19:23)];
+wo=covar$wo
+wo<-gsub('n',0,wo)
+wo<-gsub('y',1,wo)
+wo<-as.numeric(wo)
+covar.sub$wo<-wo
+write.table(covar.sub,file='eye-assoc.txt',quote=F,row.names = F,sep="\t")
+
+```
+
+
+```{r}
+mycol=c("#999999", "#E69F00", "#56B4E9")
+colors <- mycol[as.numeric(as.factor(covar$`In(3R)Mo`))]
+s3d<-scatterplot3d(covar[,c(20,21,22)],pch = 16, color=colors,main='In(3R)Mo');
+legend(s3d$xyz.convert(-0.3, 0, -0.3), legend = levels(as.factor(covar$`In(3R)Mo`)),
+       col =mycol, pch = 16)
+
+
+colors <- mycol[as.numeric(as.factor(covar$`In(2L)t`))]
+s3d<-scatterplot3d(covar[,c(20,21,22)],pch = 16, color=colors,main='In(2L)t');
+legend(s3d$xyz.convert(-0.3, 0, -0.3), legend = levels(as.factor(covar$`In(3R)Mo`)),
+       col =mycol, pch = 16)
+
+```
+
+**Table: PC1-4 and Wolbachia status for DGRP lines**
+
+```{r}
+#knitr::kable(covar.sub)
+covar.sub
+```
+
+## Perform GWAS with PLINK
+
+program information: **PLINK v1.90b6.17 64-bit (28 Apr 2020) ** www.cog-genomics.org/plink/1.9/
+
+
+We used `p.adjust()` funciton with `method='BH'` in R to correct for multiple-testing.
+
+The results showed that there were none genetic variant with adjusted p value < 0.05.
+
+```{r}
+
+#do the plink association on BLUP individual traits
+
+#system("./plink/plink --bfile dgrp2-162lines.maf0.05 --pheno BLUP_14traits.txt --all-pheno --covar eye-assoc.txt keep-pheno-on-missing-cov --linear hide-covar --out plink_BLUP_traits")
+
+#merge all the association files
+files=list.files(pattern="plink_BLUP_traits.+assoc")
+
+datalist = lapply(files, function(x) {read.table(file=x, sep="", header=T)})
+
+output=datalist[[1]][,c(1,2,3,9)]
+names(output)[ncol(output)]<-sub("plink_BLUP_traits\\.(.+)\\.assoc\\.linear", "\\1", files[1], perl=T)
+
+for(g in 2:length(files))
+{
+  output<-cbind(output,datalist[[g]]$P)
+  names(output)[ncol(output)]<-sub("plink_BLUP_traits\\.(.+)\\.assoc\\.linear", "\\1", files[g], perl=T)
+}
+
+
+require(reshape2)
+output_long<-melt(output[,-c(1,3)], id.vars=c("SNP"),
+                  measure.vars=names(output)[4:ncol(output)],
+                  variable.name="trait", value.name="P")
+output_long$CHR<-sub("([234LRX]+)_.+", "\\1", output_long$SNP, perl=T)
+output_long$BP<-sub("[234LRX]+_(\\d+)_.+", "\\1", output_long$SNP, perl=T)
+ls<-which(output_long$P<0.1)
+output_long$fdr=NA
+
+for(u in unique(output_long$trait))
+{
+  id<-which(output_long$trait==u)
+  output_long[id,"fdr"]<-p.adjust(output_long[id,"P"], method="BH")
+}
+
+sig_snps<-which(output_long$fdr<0.05)
+output_long$shape=0
+output_long$shape[sig_snps]=1
+
+
+output_long[sig_snps,]
+
+```
+
+### Manhatton plots significant traits
+
+``` {r fig.width=9}
+sig<-which(output_long$trait %in% c("nn.mean", "cc.mean", "mean.s.area", "mean.s.perimeter", "mean.s.radius.mean", "sd.s.perimeter", "sd.s.radius.mean"))
+
+thresh<-data.frame(trait=c("nn.mean", "cc.mean", "mean.s.area", "mean.s.perimeter", "mean.s.radius.mean", "sd.s.perimeter", "sd.s.radius.mean"), thresh=c(7.104743,5.954286,6.649946,6.786748,6.943858,6.301465,6.389872))
+
+ggplot(output_long[sig,], aes(BP, -log10(P), shape=as.factor(shape))) +
+  facet_grid(trait ~ CHR, scales = "free_x", switch = "x")  +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    legend.position="none") +  
+  geom_point(aes(colour = factor(CHR)), alpha =0.75) +
+  geom_hline(yintercept = -log10(1e-5), color="blue", linetype=2, size=0.5) +
+  geom_hline(data=thresh,aes(yintercept = thresh), color="grey40", linetype=2, size=0.5)
+  
+
+```
+
+## Annotation of SNPs
+
+```{r fig.width=8}
+
+#### annotation of SNPs with gene features
+anno<-read.csv("dgrp/anno-snp2gene.txt", sep="\t", header=F, col.names=paste("V", 1:7, sep=""), )
+require(reshape2)
+anno_long<-melt(anno, id.vars=c("V1"),
+                measure.vars=c("V2","V3","V4","V5","V6","V7"),value.name="gene")
+anno_long<-anno_long[,-2]
+anno_long<-anno_long[which(anno_long$gene!=""),]
+
+#get SNPs that are suggestive or significant based on FDR
+suggest.SNP<-output_long$SNP[which(output_long$P < 1e-5)]
+signif.SNP<-output_long$SNP[which(output_long$fdr < 0.05)]
+
+#get the number of times a SNP / gene is associated with a trait
+sug_gene_table<-output_long[which(output_long$P < 1e-5),]
+table_assoc_SNP<-table(sug_gene_table$SNP, sug_gene_table$trait)
+
+table_assoc_SNP_anno<-merge(sug_gene_table, anno_long, by.x="SNP", by.y="V1", no.dups=F)
+
+table_assoc_gene<-table(table_assoc_SNP_anno$gene,table_assoc_SNP_anno$trait)
+
+#need to remove duplicates introduced by multiple snps within a gene
+uni_table_assoc_gene<-apply(table_assoc_gene,1, function(x) length(which(x>0)))
+
+write.table(names(uni_table_assoc_gene), file="Summary_suggestive_genes_14traits.txt", sep="\t")
+
+write.table(uni_table_assoc_gene, file="Summary_suggestive_genes_table_14traits.txt", sep="\t", quote=F, row.names = T)
+
+write.table(rowSums(table_assoc_SNP), file="Summary_suggestive_SNP_14traits.txt", sep="\t", quote=F, row.names = T)
+
+
+hist(uni_table_assoc_gene, main="Histogram of suggestive and significant genes", xlab="Number of trait associations per gene")
+
+
+hist(rowSums(table_assoc_SNP), main="Histogram of suggestive and significant SNPs", xlab="Number of trait associations per SNP")
+
+#combine long datasets
+sig.SNP.traits<-output_long[which(output_long$fdr < 0.05 | output_long$P < 1e-5),]
+sig.SNP.traits.anno<-merge(sig.SNP.traits, anno, by.x="SNP", by.y="V1", all.x=T)
+
+write.xlsx(sig.SNP.traits.anno, file="BLUP_trait_associations_14traits.xlsx", overwrite = T)
+
+```
+
+## Gene Ontology (GO) enrichment
+
+``` {r}
+
+require(clusterProfiler); require(org.Dm.eg.db)
+
+sug.gene<-unique(anno_long[which(anno_long$V1 %in% suggest.SNP), "gene"])
+
+ego.bp <- enrichGO(gene     = sug.gene,
+                   OrgDb         = org.Dm.eg.db,
+                   keyType  = 'FLYBASE',
+                   ont           = "BP",
+                   pAdjustMethod = "fdr",
+                   pvalueCutoff  = 0.05,
+                   qvalueCutoff  = 0.05,
+                   readable      = TRUE)
+
+ego.mf <- enrichGO(gene          = sug.gene,
+                   OrgDb         = org.Dm.eg.db,
+                   keyType  = 'FLYBASE',
+                   ont           = "MF",
+                   pAdjustMethod = "fdr", #'BH'
+                   pvalueCutoff  = 0.05,
+                   qvalueCutoff  = 0.05,
+                   readable      = TRUE)
+
+ego.cc <- enrichGO(gene          = sug.gene,
+                   OrgDb         = org.Dm.eg.db,
+                   keyType  = 'FLYBASE',
+                   ont           = "CC",
+                   #ont           = "MF",
+                   pAdjustMethod = "fdr", #'BH'
+                   pvalueCutoff  = 0.05,
+                   qvalueCutoff  = 0.05,
+                   readable      = TRUE)
+
+ego.bp@result[which(ego.bp@result$p.adjust<0.05),]
+ego.mf@result[which(ego.mf@result$p.adjust<0.05),]
+ego.cc@result[which(ego.cc@result$p.adjust<0.05),]
+
+wb <- createWorkbook()
+addWorksheet(wb, "BP")
+addWorksheet(wb, "MF")
+addWorksheet(wb, "CC")
+
+writeData(wb, "BP", ego.bp@result[which(ego.bp@result$p.adjust<0.05),], startRow = 1, startCol = 1)
+writeData(wb, "MF", ego.mf@result[which(ego.mf@result$p.adjust<0.05),], startRow = 1, startCol = 1)
+writeData(wb, "CC", ego.cc@result[which(ego.cc@result$p.adjust<0.05),], startRow = 1, startCol = 1)
+
+saveWorkbook(wb, file = "BLUP_trait_GO_suggestive_14traits.xlsx", overwrite = TRUE)
+
+```
+
+Cluster Biological Processes GO terms using semantic similarity as implemented in simplifyEnrichment:  https://github.com/jokergoo/simplifyEnrichment
+
+``` {r eval=FALSE}
+
+require(simplifyEnrichment)
+GO_results_05 = ego.bp@result[which(ego.bp@result$p.adjust<0.05),]
+
+tmp<-list(GO_results_05[[1]], GO_results_05[[1]])
+
+simplifyGOFromMultipleLists(tmp,                            padj_cutoff = 0.05, ont = "BP", db = org.Dm.eg.db, measure = "Wang", method = "mclust", heatmap_param=list(breaks=c(5e-02, 5e-04), col = c("transparent", "blue")))
+
+```
+
+![](GOsim_mclust_14traits.png)
+
+## Human otholog analsysis
+
+```{r }
+
+#load genes with at least 1 suggestive or significant SNP
+fly_alz<-read.table("Summary_suggestive_genes_14traits.txt", sep="\t") #207 genes
+names(fly_alz)[1]<-"gene"
+
+#load orthologs
+#https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3179972/
+#system("wget ftp://ftp.flybase.net/releases//FB2020_04/precomputed_files/orthologs/dmel_human_orthologs_disease_fb_2020_04.tsv.gz")
+
+ortho<-read.csv("dmel_human_orthologs_disease_fb_2020_04.tsv", sep="\t", comment.char = "#", header=F)
+names(ortho)<-c("Dmel_gene_ID","Dmel_gene_symbol","Human_gene_HGNC_ID","Human_gene_OMIM_ID","Human_gene_symbol","DIOPT_score","OMIM_Phenotype_IDs","OMIM_Phenotype_IDs.name.")
+
+#get HGNC gene IDs
+#system("wget ftp://ftp.ebi.ac.uk/pub/databases/genenames/hgnc/tsv/hgnc_complete_set.txt")
+HGNC<-read.csv("hgnc_complete_set.txt", sep="\t", header=T)
+
+ortho<-merge(ortho, HGNC, by.x="Human_gene_HGNC_ID", by.y="hgnc_id", all.x=T)
+
+#get data from https://www.ebi.ac.uk/gwas/docs/file-downloads use v1.0.3
+#system("wget https://www.ebi.ac.uk/gwas/api/search/downloads/full")
+
+ebi<-read.delim("full", sep="\t", header=T, comment.char="#",
+                na.strings=".", stringsAsFactors=FALSE,
+                quote="", fill=T)
+
+ebi_index<-unique(c(grep("alzheimer", ebi$DISEASE.TRAIT, ignore.case = TRUE), grep("alzheimer", ebi$STUDY, ignore.case = TRUE), grep("alzheimer", ebi$INITIAL.SAMPLE.SIZE, ignore.case = TRUE)))
+
+ebi_alz<-ebi[ebi_index,]
+
+#get list of genes
+ebi_genes<-as.data.frame(do.call(c,strsplit(ebi_alz$MAPPED_GENE, ", ")))
+ebi_genesA<-as.data.frame(do.call(c,strsplit(ebi_alz$REPORTED.GENE.S., ", ")))
+names(ebi_genes)[1]<-"genes"
+names(ebi_genesA)[1]<-"genes"
+ebi_genes<-as.data.frame(rbind(ebi_genes,ebi_genesA))
+
+ebi_genes<-as.data.frame(do.call(c,strsplit(ebi_genes[,1], " - ")))
+ebi_genes<-as.data.frame(do.call(c,strsplit(ebi_genes[,1], "; ")))
+ebi_genes<-as.data.frame(do.call(c,strsplit(ebi_genes[,1], "-")))
+
+ebi_genes<-c(ebi_genes[,1], ebi_alz$MAPPED_GENE)
+
+ebi_genes<-as.data.frame(unique(ebi_genes))
+
+length(which(ebi_genes[,1] %in% ortho$Human_gene_symbol))
+
+
+#merge all datasets
+ortho_alz<-ortho
+ortho_alz[which(ortho_alz$Dmel_gene_ID %in% fly_alz$gene), "fly_alz"]<-1
+ortho_alz$fly_alz[is.na(ortho_alz$fly_alz)]<-0
+
+
+ortho_alz[which(ortho_alz$Human_gene_symbol %in% ebi_genes[,1]), "human_alz"] <- 1
+ortho_alz$human_alz[is.na(ortho_alz$human_alz)]<-0
+
+z00<-which(ortho_alz$fly_alz==0 &ortho_alz$human_alz==0)
+z10<-which(ortho_alz$fly_alz==1 &ortho_alz$human_alz==0)
+z01<-which(ortho_alz$fly_alz==0 &ortho_alz$human_alz==1)
+z11<-which(ortho_alz$fly_alz==1 &ortho_alz$human_alz==1)
+
+
+ortho_alz[z11,]
+
+require(Vennerable)
+
+adb<-Venn(n=2, SetNames = c("Fly AD genes", "Human AD genes"))
+Weights(adb)<-c(length(z00), length(z10), length(z01), length(z11))
+
+plot(adb)
+
+```
+
+```{r eval=FALSE}
+
+#build permutation test
+#system("wget https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/001/215/GCF_000001215.4_Release_6_plus_ISO1_MT/GCF_000001215.4_Release_6_plus_ISO1_MT_genomic.gff.gz")
+#system("gunzip GCF_000001215.4_Release_6_plus_ISO1_MT_genomic.gff.gz")
+
+gff<-read.csv("GCF_000001215.4_Release_6_plus_ISO1_MT_genomic.gff", sep="\t", header=F, comment.char = "#")
+gene<-which(gff$V3=="gene")
+gff_gene<-gff[gene,]
+gff_gene[,10]<-sub(".+FLYBASE:(\\w+)\\,.+","\\1", gff_gene[,9], perl=T)
+
+ortho_tmp<-ortho_alz
+
+humanIndex<-which(ortho_tmp$human_alz==1)
+
+tmp<-t(replicate(100000, sample(gff_gene$V10, nrow(fly_alz),F)))
+perm_results<-apply(tmp, 1, function(x) {
+  flyIndex<-which(ortho_tmp$Dmel_gene_ID %in% x);
+  length(intersect(flyIndex, humanIndex))
+  
+} )
+(p.value<-mean(perm_results > length(z11)))
+
+hist(perm_results, main="", xlab="Number of human orthologs with Alzheimer GWAS", breaks =40)
+abline(v = length(z11), col="red", lwd=3, lty=2)
+text(48,10000,paste0("p-value = ", p.value))
+
+```
+
+![](042222_alz_ortho_permutation_test.png)
