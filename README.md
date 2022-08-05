@@ -47,7 +47,7 @@ A detailed step-by-step tutorial on this pipeline can be found [here](https://ht
  or `fly_eye_pat_step-by-step_tutorial_1_image.html` file in the `./00_fly_eye_pat/fly_eye_pat_step-by-step_tutorials` folder.
 
 
-A example workflow processing 6 eye images and extracting eye scores  can be found [here](http://htmlpreview.github.io/?https://github.com/mingwhy/AD_fly_eye/blob/main/00_fly_eye_pat/Fly_eye_pat_step-by-step_tutorials/Fly_eye_pat_step-by-step_tutorial_6_image.html) or `fly_eye_pat_step-by-step_tutorial_6_image.html` file in the `./00_fly_eye_pat/fly_eye_pat_step-by-step_tutorials` folder.
+A example workflow processing 6 eye images and extracting eye scores  can be found [here](https://htmlpreview.github.io/?https://github.com/mingwhy/AD_fly_eye/blob/main/00_fly_eye_pat/Fly.eye.pat_step-by-step_tutorials/Fly.eye.pat_step-by-step_tutorial_6_image.html) or `fly_eye_pat_step-by-step_tutorial_6_image.html` file in the `./00_fly_eye_pat/fly_eye_pat_step-by-step_tutorials` folder.
 
 
 After the above R script is done, run the two perl scripts to extract quantitive features based on basic measurements.
